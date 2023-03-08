@@ -4,6 +4,13 @@
 
 Etude exploratoire de la qualité des cafés Arabica & Robusta.
 
+> **Contenu du repo**
+
+- Rapport au format `pdf`
+- Chunks de code `R` et `Markdown` au format `Rmd`
+- Code **Quarto** générant la présentation `reveal.js`
+- Slides de présentation du projet sur : https://corentinducloux.fr/Reveal.js/Coffee_presentation.html
+
 > **Variables utilisées dans l'analyse**
 
 |  Variable           | Type   | Infos                                     | Utilisation |   |
@@ -24,10 +31,3 @@ Etude exploratoire de la qualité des cafés Arabica & Robusta.
 | _Variety_           | quali  | indicateur de variété                     | ACM/CAH     |   |
 | _Processing.Method_ | quali  | méthode de traitement du grain            | ACM/CAH     |   |
 | _Color_             | quali  | couleur du grain                          | ACM/CAH     |   |
-
-> **Contenu du repo**
-
-- Rapport au format `pdf`
-- Chunks de code `R` et `Markdown` au format `Rmd`
-- Code **Quarto** générant la présentation `reveal.js`
-- Slides de présentation du projet sur : https://corentinducloux.fr/Reveal.js/Coffee_presentation.html
