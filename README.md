@@ -4,6 +4,8 @@
 
 Etude exploratoire de la qualité des cafés Arabica & Robusta.
 
+$${\color{red}Red}$$
+
 > **Contenu du repo**
 
 - Rapport au format `pdf`
