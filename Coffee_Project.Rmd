@@ -1,0 +1,857 @@
+---
+title: \textcolor{blackUniv}{\Huge \textbf{Coffee Project}}
+author: "Corentin DUCLOUX & Youssef DIR"
+date: "*`r Sys.Date()`*"
+header-includes:
+   - \usepackage{xcolor}
+   - \usepackage{color}
+   - \usepackage{soul}
+   - \usepackage{bbm}
+   - \usepackage{fancyhdr}
+   - \usepackage{graphicx}
+   - \usepackage{titling}
+   - \usepackage{tikz}
+   - \usepackage[most]{tcolorbox}
+   - \tcbuselibrary{skins,breakable}
+   - \definecolor{surligneur}{HTML}{cccbca}
+   - \definecolor{blackUniv}{RGB}{47,62,71}
+   - \definecolor{greenUniv}{RGB}{15,174,159}
+   - \definecolor{brownUniv}{RGB}{143,96,11}
+   - \pretitle{\begin{center}\LARGE\includegraphics[width=12cm]{ut.png}\\\noindent\rule{16cm}{0.4pt}\\\vspace{5mm}}
+   - \posttitle{\end{center}}
+output: 
+  pdf_document:
+    df_print: kable
+    highlight: tango
+    toc: true
+    toc_depth: 3
+toc-title: \hypertarget{contents}{}\textcolor{brownUniv}{Table des matières :}
+colorlinks: true
+geometry: margin=2cm
+fontsize: 12pt
+line-height: 1.5
+documentclass: report
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warnings = FALSE, out.width = "65%",
+                      fig.align = "center")
+```
+
+<!-- Useful shortcuts :
+
+COMMENT = CTRL + SHIFT + C
+ADD CHUNK = CTRL + ALT + I
+SHORTCUT DIALOG BOX = CTRL + ALT + P
+
+-->
+
+<!-- TeX for Header & Footer, last line to get back to the TOC via an arrow -->
+
+\pagestyle{fancy}
+\fancyhead[CE,CE]{Your Document Header}
+\fancyhead[LE,RO]{
+  \begin{tikzpicture}
+    \fill[color=gray!60] (-1.75,0) -- (0,0) -- (0.25,0.5) -- (-1.5,0.5)  -- cycle;
+    \fill[color=gray!20] (-3.75,0) -- (-2,0) -- (-1.75,0.5) -- (-3.5,0.5)  -- cycle;
+    \fill[color=gray!60] (-5.75,0) -- (-4,0) -- (-3.75,0.5) -- (-5.5,0.5)  -- cycle;
+  \end{tikzpicture}
+  \includegraphics[width=0.75cm]{coffee_icon.png}}
+\fancyfoot[LE,RO]{\includegraphics[width=2cm]{mecen_transparent.png}}
+\fancyfoot[LO,CE]{\hyperlink{contents}{\includegraphics[width=1cm]{fleche_retour.png}}}
+
+<!-- TeX for Setting up Boxes -->
+
+\tcbset {
+  base/.style={
+    arc=0mm, 
+    bottomtitle=0.5mm,
+    boxrule=0mm,
+    colbacktitle=brown!20!white, 
+    coltitle=black,
+    colback=white,
+    fonttitle=\bfseries, 
+    left=2.5mm,
+    leftrule=1mm,
+    right=3.5mm,
+    title={#1},
+    toptitle=0.75mm, 
+  }
+}
+
+```{=tex}
+\newtcolorbox{mainbox}[1]{colframe = brownUniv, base={#1}}
+```
+
+\newpage
+
+## PARTIE I : ACP
+
+### IMPORTATION DES DONNEES
+
+```{r fun}
+cv <- function(x, y) {
+      t <- table(x, y)
+      chi <- suppressWarnings(chisq.test(t))$statistic
+      cramer <- sqrt(chi / (length(x) * (min(dim(t)) - 1)))
+      cramer
+}
+
+cramer.matrix <- function(y, fill = TRUE){
+      col.y <- ncol(y)
+      V <- matrix(ncol = col.y, nrow = col.y)
+      for(i in 1:(col.y - 1)){
+            for(j in (i + 1):col.y){
+                  V[i,j] <- cv(pull(y,i), pull(y,j))
+            }
+      }
+      diag(V) <- 1 
+      if (fill) {
+            for (i in 1:ncol(V)) {
+                  V[, i] <- V[i, ]
+            }
+      }
+      colnames(V) <- names(y)
+      rownames(V) <- names(y)
+      V
+}
+
+nb_ind_4_fifty_cont <- function(acm, axe = 1, p = 0.5){
+  par_contrib <- acm$ind$contrib[,axe]/sum(acm$ind$contrib[,axe]) 
+  par_contrib_cum <- par_contrib %>% sort(decreasing = TRUE) %>% cumsum()
+  return(sum(par_contrib_cum <= p) +1)
+}
+
+resume_ind_contrib_axe <- function(acm, dim_max = 4, p = 0.5, eff = TRUE){
+  temp <- NULL
+  for (i in 1:dim_max){
+    temp[i] <- nb_ind_4_fifty_cont(acm, axe = i, p = p)
+  }
+  names(temp) <- paste("Dim", 1:dim_max)
+  if (eff == TRUE){
+    return(temp)
+  } else {
+    return( round(temp/nrow(acm$ind$coord)*100, 1))
+  }
+}
+
+habillage <- function(x, n, axes = c(1,2)){
+  fviz_mca_ind(x, geom = "point",
+                axes = axes,
+                habillage = n, alpha = 0.4,
+                addEllipses = TRUE,
+                ggtheme = theme_minimal()) + ggtitle("")
+}
+
+```
+
+
+```{r colors}
+col_bar <- "#6f4e37"
+col_var <- "#003399"
+```
+
+```{r import_lib, warning=FALSE}
+library(FactoMineR)
+library(corrplot)
+library(factoextra)
+library(kableExtra)
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+library(kneedle)
+library(patchwork)
+```
+
+```{r import_data, echo = TRUE}
+df_1 <- read.csv("~/R data/arabica_data_cleaned.csv", sep = ",", row.names = 1)
+df_2 <- read.csv("~/R data/robusta_data_cleaned.csv", sep = ",", row.names = 1)
+```
+
+```{r combine_df}
+colnames(df_2) <- colnames(df_1)
+df_both <- rbind(df_1,df_2)
+class_df <- cbind(Variables = colnames(df_both), Type = unlist(unname(lapply(df_both, class))))
+#names(df_1[names(df_1) != names(df_2)])
+```
+
+Cette étude portera sur des données issues de 2 datasets concernant les \textcolor{brownUniv}{cafés} **arabica** et **robusta**.
+Avant de combiner les jeux de données, il faut d'abord vérifier que les noms des variables sont les mêmes avec la commande `colnames(df_1) == colnames(df_2)`. 6 variables n'ont pas le même nom, on peut donc attribuer le nom des colonnes du premier dataframe au second avec `colnames(df_2) <- colnames(df_1)`. On combine les deux *dataframes* avec la commande `df_both <- rbind(df_1,df_2)`
+
+- Nous obtenons finalement un *dataframe* comprenant **`r nrow(df_both)`** observations et **`r ncol(df_both)`** variables.
+
+### CHOIX DES VARIABLES
+
+\begin{mainbox}{Résultats :}
+
+Notre intuition serait de faire une ACP normée (toutes les variables n'ont pas les mêmes unités de mesure) avec les mesures de qualité ($Aroma,Flavor,...,Moisture$). On pourrait aussi rajouter en caractère qualitatif supplémentaire le type de café ($Species$) ainsi que le score Total ($Total.Cup.Points$) en caractère quantitatif supplémentaire.
+  
+\end{mainbox}
+
+```{r var_table}
+class_var <- lapply(df_both[c(1,20:31)], class)
+
+Variables <- names(class_var)
+Type <- unlist(unname(class_var))
+
+cbind(Variables,Type) %>% 
+  kable(booktabs = T,escape = T) %>%
+  add_header_above(header = c("Variables retenues pour l'ACP :" = 2),
+                   color = "brownUniv", align = "c", italic = T, bold = T) %>%
+    kable_styling(full_width = F, position = "center",
+                  latex_options = c("striped", "hold_position"))
+```
+
+\rule{18cm}{0.4pt}
+
+On remarque que l'individu **1311** a un score  de `r df_both$Flavor[1311]` sur de nombreuses variables numériques $\Rightarrow$ On peut l'exclure car il risque de fortement influencer l'ACP.
+
+### ETUDE DES CORRELATIONS
+
+```{r correlation_plot}
+M <- round(cor(df_both[20:31]),3)
+
+corrplot(M, order = 'hclust',type = 'upper',
+         diag = FALSE, method = 'square',
+         cl.ratio = 0.15, cl.cex = 0.7,
+         tl.col = 'black', tl.srt = 45,tl.cex = 0.7,
+         col = COL1("YlOrBr", n = 200))
+```
+
+\begin{mainbox}{Interprétation des corrélations :} 
+  \begin{enumerate}
+    \item On s'aperçoit que les variables $Cupper.Points, Aroma,Balance,...,Flavor$ sont très                positivement corrélés entre elles.
+    \item La variable $Moisture$ semble quant à elle être légèrement négativement corrélée avec              l'ensemble des variables. 
+    \item Les variables $Sweetness, Uniformity, Clean.Cup$ sont globalement corrélés dans le même            sens.
+  \end{enumerate}
+\end{mainbox}
+
+
+### ETUDE DES INERTIES
+
+```{r inertie_tab}
+
+resacp <- PCA(df_both[df_both$Total.Cup.Points != 0,c(1,20:31)], quali.sup = "Species", quanti.sup = "Total.Cup.Points", graph = F)
+
+
+tab <- round((resacp$eig),2)
+
+rownames(tab) = c("$F_1$","$F_2$","$F_3$","$F_4$","$F_5$","$F_6$","$F_7$",
+                   "$F_8$","$F_9$","$F_{10}$","$F_{11}$")
+
+colnames(tab) = c("Inerties", "Inerties relatives (\\%)", "Inerties relatives cumulées (\\%)")
+
+tab %>% 
+  kable(booktabs = T, escape = F) %>%
+  add_header_above(header = c("Tableau des inerties :" = 4),
+                   color = "brownUniv", align = "c", italic = T, bold = T) %>%
+    kable_styling(full_width = F, position = "center",
+                  latex_options = c("striped", "hold_position"))
+
+```
+
+```{r inertie_plot}
+
+fviz_eig(resacp, addlabels = TRUE, ylab = "% d'inertie expliquée",
+         barfill = "#6f4e37", barcolor = "#6f4e37") + 
+  ylim(0,60) + 
+  ggtitle("Scree plot") +
+  theme(plot.title = element_text(size = 18, face = "bold"))
+
+knee <- kneedle(x = c(1:length(resacp$eig[,2])), y = unname(resacp$eig[,2]))
+
+```
+Afin de déterminer le nombre d'axes factoriels $F_i$ à conserver, on peut utiliser la méthode dite du "coude" (On voit que le changement abrupt de pente se produit à partir du troisième axe), mais nous avons préféré tester la méthode introduite dans [Detecting Knee Points in System Behavior](https://raghavan.usc.edu/papers/kneedle-simplex11.pdf).
+
+\rule{18cm}{0.4pt}
+
+La commande `kneedle(x = c(1:length(resacp$eig[,2])), y = unname(resacp$eig[,2]))` nous renvoie donc l'axe pour lequel il faut s'arrêter et son inertie associée. 
+
+Avec cette méthode, l'algorithme trouve le coude à l'axe **`r knee[1]`**. On conserve donc **2** axes pour notre ACP, soit **`r round(resacp$eig[2,3],2)`** $\%$ de la variabilité totale expliquée.
+
+### ETUDE DES VARIABLES [^1]
+
+```{r variables, out.width = "60%"}
+tab <-cbind(
+  round(resacp$var$contrib[,1:2],2), # Récupérer la contrib de F1 & F2
+  round(resacp$var$cos2[,1:2],2), # Récupérer la qualité de F1 & F2
+  round(resacp$var$cos2[,1] + resacp$var$cos2[,2],2)) # qualité F1+F2 
+colnames(tab) = c("Cont $(F_1)$","Cont $(F_2)$","$cos^2(F_1)$",
+                   "$cos^2(F_2)$","$cos^2(F_1+F_2)$")
+
+# ifelse couleur conditionnelle
+
+color_1 = ifelse(tab[,1] > mean(tab[,1]),
+       "green!30!black","red!50!black")
+
+color_2 = ifelse(tab[,2] > mean(tab[,2]),
+       "green!30!black","red!50!black")
+
+
+tab %>% 
+kable(booktabs = T,escape = F) %>%
+  add_header_above(header = c("Contributions et qualité des variables :" = 6),
+                   color = "brownUniv", align = "c", italic = T, bold = T) %>%
+    kable_styling(full_width = F, position = "center",
+                  latex_options = c("striped", "hold_position")) %>%
+    column_spec(2,color = color_1) %>% 
+    column_spec(3,color = color_2) %>% 
+  footnote(symbol = "Les couleurs vertes indiquent les contributions supérieures à la moyenne")
+
+ax1 <- fviz_contrib(resacp,axes = 1, choice = "var", fill = "#6f4e37", color = "#6f4e37") + 
+  ggtitle("Contribution variables - Dimension 1") +
+  theme(plot.title = element_text(size = 11, face = "bold"))
+
+ax2 <- fviz_contrib(resacp,axes = 2, choice = "var", fill = "#6f4e37", color = "#6f4e37") + 
+  ggtitle("Contribution variables - Dimension 2") +
+  theme(plot.title = element_text(size = 11, face = "bold"))
+
+ggarrange(ax1,ax2,hjust = -0.6)
+```
+
+[^1]: [Détail des variables](https://spiritanimalcoffee.com/blogs/spirit-animal-blog/the-coffee-quality-score)
+
+\begin{mainbox}{Interprétation des variables :} 
+  \begin{enumerate}
+    \item Le tableau des contributions nous indique que les variables ont globalement une qualité            de représentation moyenne à bonne $(cos^2 >0.5)$, excepté la variable $Moisture$ - il              faudra donc être prudent quant à l'interprétation de cette variable dans le plan                   factoriel $(F_1,F_2)$.
+    \item Les variables ayant le plus contribué à la construction de l'axe factoriel \textbf{1}              sont $Flavor$, $Aftertaste$, $Balance$, $Cupper.Points$, $Acidity$ et $Aroma$ avec des              proportions de contribution similaires (10-15 $\%$) $\Rightarrow$ \textbf{L'axe factoriel 1 est donc un axe global}.
+    \item Les variables ayant le plus contribué à la construction de l'axe factoriel \textbf{2}              sont $Sweetness$, $Clean.Cup$ et $Uniformity$ avec des niveaux de contribution élévés (au dessus de \textbf{20} $\%$ chacune). \colorbox{surligneur}{Cependant, l'axe ne porte que 15 $\%$ d'inertie.}
+    \item Le Cercle des corrélations nous permet quant à lui d'observer que les 2 cônes de variables contribuent dans le cadran positif du cercle.
+    \item La variable supplémentaire $Total.Cup.Points$ se retrouve projetée entre les 2 cônes de variables - en effet, c'est une combinaison linéaire des autres variables numériques.
+  \end{enumerate}
+\end{mainbox}
+
+```{r circle}
+options(ggrepel.max.overlaps = Inf)
+
+fviz_pca_var(resacp, col.var = "cos2",
+             gradient.cols = c("#FFCC00", "#CC9933", "#660033", "#003399"),
+             repel = TRUE) +
+    ggtitle("Cercle des corrélations") +
+    theme(plot.title = element_text(size = 18, face = "bold"))
+```
+
+### ETUDE DES INDIVIDUS
+
+```{r individuals, warning = FALSE}
+ax3 <- fviz_contrib(resacp,axes = 1, choice = "ind", fill = "#6f4e37",
+                    color = "#6f4e37", top = 20) + 
+  ggtitle("Contribution individus - Dimension 1") +
+  theme(plot.title = element_text(size = 11, face = "bold"))
+
+ax4 <- fviz_contrib(resacp,axes = 2, choice = "ind", fill = "#6f4e37",
+                    color = "#6f4e37",top = 20) + 
+  ggtitle("Contribution individus - Dimension 2") +
+  theme(plot.title = element_text(size = 11, face = "bold"))
+
+ggarrange(ax3,ax4,hjust = -0.6)
+
+fviz_pca_ind(resacp, col.ind = "cos2",
+             gradient.cols = c("#FFCC00","#CC9933","#660033","#003399"),
+             alpha.ind="contrib",
+             repel = FALSE) + 
+  ggtitle("ACP - Individus") +
+  theme(plot.title = element_text(size = 18, face = "bold"))
+```
+
+\begin{mainbox}{Interprétation des individus :} 
+  \begin{enumerate}
+    \item Pour les diagrammes en barres, nous avons sélectionné les 20 individus les plus                    contributifs, le nombre d'observations rendant difficilement lisible le graphique                  autrement.
+    \item Les individus ayant le plus contribué à la construction de l'axe factoriel \textbf{1}              sont \textbf{1309, 1305, 1306, 1304, 1299} avec des proportions supérieures à 1 $\%$               chacun.
+    \item Les individus ayant le plus contribué à la construction de l'axe factoriel \textbf{2}              sont \textbf{1310} (\colorbox{surligneur}{avec une contribution de plus de 10 $\%$}),              \textbf{1296} et \textbf{1309}. A eux 3, ils combinent 20 $\%$ de l'inertie totale sur             l'axe \textbf{2} $\Rightarrow$ \textbf{il décrit des individus extrêmes}.
+    \item La représentation graphique nous montre sans surprise que les individus les                        mieux représentés et ayant la meilleure qualité sont ceux qui contribuent le plus,                 tandis que les individus les moins bien représentés se concentrent vers le centre du               graphique.
+  \end{enumerate}
+\end{mainbox}
+
+
+```{r group plot, warning = FALSE, out.height = "28%"}
+p<- fviz_pca_ind(resacp,label = "none", habillage="Species",ellipse.alpha = 0,
+             addEllipses = TRUE, ellipse.level = 0.95) + ylim(-10,5) +
+             scale_color_brewer(palette="Dark2") + 
+             ggtitle("Nuage des individus selon leur groupe") +
+             theme(plot.title = element_text(size = 18, face = "bold"))
+p
+```
+
+- Une visualisation graphique des individus selon qu'ils appartiennent au groupe **Arabica** ou **Robusta** nous semblait intéressante, et on distingue en moyenne des positions différentes selon le groupe. Cela peut s'expliquer par le fait que la médiane de la variable $Sweetness$[^2] des cafés Arabica est égale à **`r median(df_1$Sweetness)`** tandis que celle des cafés Robusta est égale à **`r median(df_2$Sweetness)`**
+- Attention cependant, les groupes sont loin d'être homogènes ! En effet, le groupe Arabica ($n_1 = 1311$) contient beaucoup plus d'observations que le Groupe Robusta ($n_2 = 28$)
+
+[^2]: [Arabica coffee contains almost twice the amount of sugar than any other coffee](https://coffeewitness.com/arabica-vs-robusta/)
+
+```{r biplot, warning = FALSE}
+p2 <- fviz_pca_biplot(resacp, label ="var",col.var = "cos2",
+                     col.ind="cos2",
+                gradient.cols= c("#FFCC00","#CC9933","#660033","#003399")) +
+      ggtitle("Nuage des individus et des variables") +
+  theme(plot.title = element_text(size = 18, face = "bold"))
+
+p2
+
+#df_both[df_both$Total.Cup.Points < 80,]
+
+#df_both[1309,]
+```
+
+\begin{mainbox}{Conclusion :} 
+
+La plupart des "Specialty Coffees" ($Total.Cup.Points > 80$) ont les caractéristiques $Sweetness$, $Uniformity$ et $Clean.Cup$ = 10/10. Les critères de différenciation des très bons cafés sont donc $Body$, $Balance$, $Acidity$, $Flavor$. L'axe \textbf{1} peut être interprété comme une mesure de la qualité du café (Plus l'individu se situe à droite de l'axe, plus le café est de bonne qualité et a un bon score, et inversement). L'axe \textbf{2} pourrait être interprété comme un autre indicateur de qualité, mais lequel ? L'axe est plus difficilement interprétable.
+
+\end{mainbox}
+
+## PARTIE II : ACM
+
+- Dans la partie I, nous n'avons pas pu trouver plusieurs groupes d'individus distincts. Nous avons vu grâce à l'ACP qu'avec les **caractéristiques de qualité**, les individus se distribuent de manière globalement uniforme sur l'axe 1.
+
+- Afin de pouvoir effectuer une **Classification hiérarchique**, on opte donc pour l'étude de 3 variables actives : $Variety, Processing.Method, Color$ $\Rightarrow$ La question devient donc : La méthode de traitement et la variété des cafés influe t-elle sur leur couleur ?
+
+### MODALITES DES VARIABLES ACTIVES
+
+```{r var_engineering, echo = FALSE}
+
+l = unique(df_both$Variety)
+
+Sum_variety <- NULL
+
+for (i in 1:length(l)){
+   Sum_variety[i] <- sum(df_both$Variety == l[i])
+}
+
+names(Sum_variety) <- l
+
+lv_sup <- names(Sum_variety[Sum_variety >=50])
+
+df_both$Variety <- ifelse(df_both$Variety == lv_sup[1], "Other",
+       ifelse(df_both$Variety == lv_sup[2], lv_sup[2],
+              ifelse(df_both$Variety == lv_sup[3], lv_sup[3],
+                     ifelse(df_both$Variety == lv_sup[4], lv_sup[4],  
+                            ifelse(df_both$Variety == lv_sup[5], lv_sup[5],
+                                   ifelse(df_both$Variety == lv_sup[6], lv_sup[6], "Other"))))))
+
+df_both$Color <- ifelse(df_both$Color == "None", "Other",
+                    ifelse(df_both$Color == "", "Other", df_both$Color))
+
+df_both$Processing.Method <- ifelse(df_both$Processing.Method == "", "Other",
+                                    df_both$Processing.Method)
+
+df_both$Grading.Date[962] <- str_sub(df_both$Grading.Date[962],start = 1, end = 19)
+df_both$Grading.Date[1084] <- str_sub(df_both$Grading.Date[1084],start = 1, end = 19)
+df_both$Grading.Date <- as.numeric(str_sub(df_both$Grading.Date,start = -4))
+```
+
+\begin{mainbox}{Recodage préalable :} 
+\begin{enumerate}
+\item Il convient de noter que la modification des variables est la cause de l'effectif important de la modalité \textbf{Other} pour la variable $Variety$.
+
+\item Les modalités rares sont \textbf{Catuai} pour la variable $Variety$, \textbf{Semi-washed/Semi-pulped} pour la variable $Processing.Method$ et \textbf{Pulped natural/Honey}.
+
+\end{enumerate}
+\end{mainbox}
+
+```{r modal}
+
+names(df_both)[names(df_both) == 'Processing.Method'] <- 'PM'
+
+df_MCA <- df_both[df_both$Total.Cup.Points != 0, c(1,16,18,19,30,31,34)]
+
+(ggplot(df_MCA, aes(x = reorder(Variety,Variety,length))) +
+  geom_bar(fill = col_bar, width = 0.6) + coord_flip() +
+  labs(y = "Effectif",x = "") + ggtitle("Variété") + theme_minimal() + 
+  theme(plot.title = element_text(size = 18, face = "italic")) + 
+
+ggplot(df_MCA, aes(x = reorder(PM,PM,length))) +
+  geom_bar(fill = col_bar, width = 0.6) + coord_flip() +
+  labs(y = "Effectif", x = "") + ggtitle("Traitement") + theme_minimal() +
+  theme(plot.title = element_text(size = 18, face = "italic"))) /
+
+ggplot(df_MCA, aes(x = reorder(Color,Color,length))) +
+  geom_bar(fill = col_bar, width = 0.5) + coord_flip() +
+  labs(y = "Effectif", x = "")+ ggtitle("Couleur") + theme_minimal() +
+  theme(plot.title = element_text(size = 18, face = "italic"))
+
+```
+
+```{r cramer}
+M2 <- round(cramer.matrix(df_MCA[c(-1,-2,-5,-6)]),2)
+```
+
+Les $V$ de **Cramer** permettent de mesurer l’intensité des liens entre les variables qualitatives étudiées. On observe alors que : 
+
+- Le lien entre la variable $Color$ et $Processing.Method$ est le plus important (**`r M2[3,2]`**)
+- Le lien entre la variable $Variety$ et $Processing.Method$ (**`r M2[2,1]`**).
+- Le lien le moins important est entre la variable $Color$ et $Variety$ (**`r M2[3,1]`**).
+
+***
+
+Nous avons aussi ajouté en variables **quantiatives supplémentaires** les variables $Total.Cup.Points$ (pour faire le lien entre l'ACP et l'ACM), $Moisture$ et $Grading.Date$. Celles-ci seront étudiées plus en détail avec un cercle des corrélations (les projections des variables restent quand même proches de 0).
+
+
+### ETUDE DES INERTIES
+
+```{r inertia_acm}
+acm <- MCA(df_MCA, quanti.sup = c(2,5:6), quali.sup = 1, ncp = 20, graph = FALSE)
+
+fviz_screeplot(acm, choice = "variance", ncp = 20,
+               main = "Pourcentage d'inertie expliquée",
+               addlabels = TRUE,  ylab=" ",
+               barfill = col_bar, barcol="white") + ylim(0,18) + 
+               theme(plot.title = element_text(size = 18, face = "bold"))
+
+somme_inert <- round(sum(acm$eig[1:4,2]),2)
+```
+
+***
+
+- L'axe $F_1$ explique **`r round(acm$eig[1,2],2)`** % de l'inertie totale
+- Les axes factoriels $F_i$ avec ($i = 1,\dots,4$) expliquent `r somme_inert` % de l'inertie totale
+- *NB* : Il faudrait théoriquement étudier les 4 dimensions si l'on voulait être précis, mais on peut se restreindre aux deux premières puisque les interprétations restent similaires pour les autres axes.
+
+### ETUDE DES VARIABLES
+
+```{r contrib_var}
+fviz_contrib(acm,axes = 1, choice = "var", fill = col_bar,
+                    color = col_bar) + 
+  ggtitle("Contribution modalités - Dimension 1") +
+  theme(plot.title = element_text(size = 11, face = "bold")) +
+  
+fviz_contrib(acm,axes = 2, choice = "var", fill = col_bar,
+                    color = col_bar) + 
+  ggtitle("Contribution modalités - Dimension 2") +
+  theme(plot.title = element_text(size = 11, face = "bold"))
+
+```
+
+- Sur $F_1$, les modalités contribuant le plus sont les modalités **Other** des 3 variables actives.
+
+- Sur $F_2$, la modalité contribuant le plus est la variété **Typica**, s’ensuit la méthode de traitement qui implique un séchage du grain.
+
+```{r eta2}
+
+fviz_mca_var(acm, choice = "var", axes = c(1,2),
+             invisible = "quali.sup", col.var = col_var,
+             repel = TRUE, labelsize = 3,col.quanti.sup = "white",
+             title = "Carrés des rapports \nde corrélation",
+             ggtheme = theme_minimal()) +
+             theme(plot.title = element_text(size = 18, face = "bold")) +
+
+fviz_mca_var(acm, choice = "quanti.sup", col.var = "orange",
+             ggtheme = theme_minimal()) +
+             ggtitle("Cercle de corrélation \n(variables quanti sup)") + 
+             theme(plot.title = element_text(size = 18, face = "bold"))
+```
+
+```{r var_repr, warning=FALSE}
+modalites <- names(acm$call$Xtot)[1:14]
+
+color_mod <- ifelse(str_detect(modalites, "Variety") == TRUE, "orange",
+       ifelse(str_detect(modalites, "Color") == TRUE, "green", "red"))
+
+fviz_mca_var(acm, choice = "var.cat", axes = c(1,2),
+             repel = TRUE, labelsize = 3,
+             col.quali.sup = "orange",
+             col.var = color_mod,
+             title = "Nuage des modalités",
+             ggtheme = theme_minimal()) +
+             theme(plot.title = element_text(size = 18, face = "bold")) +
+             theme(legend.position = "none")
+```
+
+\begin{mainbox}{Interprétation des variables :} 
+\begin{enumerate}
+\item Pour les $\eta^2$, on s’aperçoit que la variable la plus structurante sur $F_1$ et $F_2$ est $Processing.Method$, suivie de $Variety$ et $Color$ dont les $\eta^2$ sont moins importants.
+
+\item Toutes les modalités de $Processing.Method$ semblent être distribuées le long de l’axe $F_2$, sauf pour la modalité \textbf{Other} qui se détache le long de l’axe $F_1$. 
+
+\item Il y a une opposition entre les méthodes de traitement qui impliquent un séchage et celles qui impliquent un nettoyage des grains de café.
+
+\item De plus, on voit que la couleur \textbf{Green} s'associe bien avec la méthode de traitement \textbf{Washed/Wet}. La variable quanti sup $Moisture$ s'associe bien avec \textbf{Washed/Wet}.
+
+\item On remarque aussi que toutes les modalités \textbf{Other} se regroupent à droite le long de l'axe $F_1$.
+
+\item Enfin, les modalités \textbf{Blue-Green} et \textbf{Bluish-Green} de la variable $Color$ s’opposent sur l’axe $F_2$.
+
+\end{enumerate}
+\end{mainbox}
+
+### ETUDE DES INDIVIDUS
+
+```{r ind_contrib_acm}
+
+fviz_contrib(acm, axes = 1, choice = "ind", fill = col_bar,
+                    color = col_bar) + 
+  ggtitle("Contribution individus - Dimension 1") +
+  theme(plot.title = element_text(size = 11, face = "bold"),
+        axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + 
+  
+fviz_contrib(acm,axes = 2, choice = "ind", fill = col_bar,
+                    color = col_bar) + 
+  ggtitle("Contribution individus - Dimension 2") +
+  theme(plot.title = element_text(size = 11, face = "bold"),
+        axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+ind_ax1 <- unname(resume_ind_contrib_axe(acm,1))
+ind_ax2 <- unname(resume_ind_contrib_axe(acm,2))[2]
+
+```
+
+***
+
+- Sur l’axe $F_1$, on aperçoit qu’un nombre important d’individus contribue à même proportion (probablement les individus qui prennent la modalité **Other**).
+
+- Sur l’axe $F_2$, un petit groupe d’individus (ceux qui prennent des modalités rares) contribuent de manière sensiblement plus importante que les autres.
+
+- Pourtant, pour atteindre **50 \%** de contribution, il faut à peu près le même nombre d'individus pour $F_1$ et $F_2$ $\Rightarrow$ respectivement **`r ind_ax1`** et **`r ind_ax2`**.
+
+***
+
+```{r ind_plot_acm}
+
+fviz_mca_ind(acm, axes = c(1,2), labelsize = 3,
+             title = "Nuage des individus",
+             col.ind = col_bar,
+             geom = "point",
+             alpha.ind = 0.7,
+             ggtheme = theme_minimal()) +
+             theme(plot.title = element_text(size = 18, face = "bold")) +
+             theme(legend.position = "none")
+```
+
+- Le graph ci-dessus permet de visualiser que les individus se distribuent plutôt bien le long de l’axe $F_2$. 
+
+- Pour l’axe $F_1$, on voit qu’un groupe d’individus se détache à droite - on peut alors vérifier quelles sont les modalités prises par ces individus grâce à un habillage spécifique du nuage de points.
+
+
+***
+
+**HABILLAGE DU NUAGE DES INDIVIDUS**
+
+```{r habillage, out.width = "95%"}
+
+(habillage(acm, 3) + habillage(acm, 4)) / habillage(acm, 7)
+
+```
+
+\begin{mainbox}{Interprétation des individus :} 
+\begin{enumerate}
+
+\item L'habillage du nuage des individus par la variable $Variety$ n'amène pas d'information particulière, si ce n'est qu'on distingue un détachement des individus prenant la modalité \textbf{Other}.
+
+\item L'habillage du nuage des individus par la variable $Processing.Method$ montre toujours un détachement des individus prenant la modalité \textbf{Other}. On s'aperçoit aussi qu'on distingue beaucoup mieux les individus prenant des modalités différentes.
+
+\item L'habillage du nuage des individus par la variable $Color$ confirme une fois de plus le détachement des individus prenant la modalité \textbf{Other}.
+
+\end{enumerate}
+\end{mainbox}
+
+***
+
+Dans la prochaine partie de l'étude, nous effectuerons une classification avec les résultats de l'**Analyse des Correspondances Multiples** pour statuer sur la pertinence ou non de notre problématique grâce aux classes observées.
+
+\newpage
+
+## PARTIE III : CAH
+
+### MESURE ET CHOIX DES CLASSES
+
+```{r between_within}
+
+acm_classif <- MCA(df_MCA, quanti.sup = c(2,5:6), quali.sup = 1, ncp = 9, graph = FALSE)   
+
+cah <- HCPC(acm_classif, nb.clust = 4, graph = FALSE)
+
+cah$call$t$inert.gain[1:9] %>% 
+  barplot(las = 1, density = 40, col = col_bar,
+          main = "Inerties inter-classes", names = 1:9)
+```
+
+-	On aperçoit des sauts considérables dans les gains d’inertie interclasses à **2**, **4** et **8** classes. 
+
+- On souhaite **synthétiser de l’information** $\Rightarrow$ 2 classes nous semble donc insuffisant, tandis que 8 classes semble trop important : 4 classes est un bon compromis.
+
+***
+
+```{r dendo, warning=FALSE, out.width = "80%"}
+
+fviz_dend(cah, cex = 0.3, ylab = "",
+          main = "Classification sur les résultats de l'ACM",
+          palette = c("#7570B3","#E7298A","#D95F02","#1B9E77"))
+
+sum_clust_1 <- sum(cah$call$X$clust == 1)
+sum_clust_2 <- sum(cah$call$X$clust == 2)
+sum_clust_3 <- sum(cah$call$X$clust == 3)
+sum_clust_4 <- sum(cah$call$X$clust == 4)
+
+```
+
+- D'après le *dendogramme* ci-dessus, on obtient 4 **clusters** de taille $n =$ `r sum_clust_1`, `r sum_clust_2`, `r sum_clust_3` et `r sum_clust_4`.
+
+### VISUALISATION DES CLUSTERS 
+
+```{r clusters, warning = FALSE, out.width = "65%"}
+options(ggrepel.max.overlaps = 15)
+
+fviz_cluster(cah, geom = c("point", "text"), repel = TRUE,
+             main = "",
+             axes = c(1,2)) + 
+  theme_minimal() +
+  theme(legend.position = "none") +
+  scale_color_brewer(palette = "Dark2") + 
+  scale_fill_brewer(palette = "Dark2")
+```
+
+\begin{mainbox}{Interprétation des clusters :} 
+\begin{enumerate}
+
+\item Le long de l’axe $F_1$ on distingue une classe qui se détache des autres (on avait montré dans l’ACM que ces individus prenaient les modalités \textbf{Other}) $\Rightarrow$ on retrouve donc bien cette distinction dans notre partition !
+
+\item On distingue de plus 3 classes se chevauchant le long de l’axe $F_2$.
+
+\item Les individus de la classe située en haut (bleue) doivent probablement prendre la modalité \textbf{Semi-Washed/Semi-Pulped}, tandis que les individus de la classe située en bas (orange) doivent prendre la modalité \textbf{Pulped Natural Honey} de la variable $Processing.Method$.
+
+\end{enumerate}
+\end{mainbox}
+
+### TEST DU KHI-DEUX
+
+- On souhaite savoir quelle variable est la plus liée à la partition ci-dessus, on peut utiliser un test du $\chi^2$ pour le découvrir :
+
+```{r khi_deux,echo=FALSE}
+
+chi2_var <- cah$desc.var$test.chi2
+colnames(chi2_var) = c("$p-value$","$ddl$")
+
+chi2_var %>%
+kable(booktabs = T,escape = F, align = 'c') %>%
+  add_header_above(header = c("Variables caractérisant la partition :" = 3),
+                   color = col_bar, align = "c", italic = T, bold = T) %>%
+    kable_styling(full_width = F, position = "center",
+                  latex_options = c("striped", "hold_position"))
+
+```
+
+- On s'aperçoit donc que la variable caractérisant le mieux la partition est $Processing.Method$.
+- La variable la "moins liée" à la partition est $Species$ (peut-être à cause du nombre d'individus trop faible pour **Robusta**).
+
+
+\newpage
+
+### MODALITES ASSOCIES
+
+```{r test}
+
+round(cah$desc.var$category$`2`[,1:3],2) %>% 
+  kable(booktabs = T, escape = T, align = 'c') %>%
+  add_header_above(header = c("Modalités caractérisant le mieux le cluster 2 :" = 4),
+                   color = col_bar, align = "c", italic = T, bold = T) %>%
+    kable_styling(full_width = F, position = "center", font_size = 10,
+                  latex_options = c("striped", "hold_position"))
+
+round(cah$desc.var$category$`4`[,1:3],2) %>% 
+  kable(booktabs = T, escape = T, align = 'c') %>%
+  add_header_above(header = c("Modalités caractérisant le mieux le cluster 4 :" = 4),
+                   color = col_bar, align = "c", italic = T, bold = T) %>%
+    kable_styling(full_width = F, position = "center", font_size = 10,
+                  latex_options = c("striped", "hold_position"))
+```
+
+\begin{mainbox}{Interprétation des modalités (Cluster 2) :} 
+\begin{enumerate}
+
+\item 100 $\%$ des individus qui prennent la modalité \textbf{Pulped natural/honey} de la variable $Processing.Method$ se retrouvent dans cette classe.
+
+\item 100 $\%$ des individus de cette classe prennent cette modalité quand globalement, seulement 1 $\%$ des individus prennent cette modalité.
+
+\item \textbf{En conclusion :} ce cluster permet de bien distinguer ce groupe d'individus extrêmes et les regroupe avec une grande précision.
+
+\end{enumerate}
+\end{mainbox}
+
+\begin{mainbox}{Interprétation des modalités (Cluster 4) :} 
+\begin{enumerate}
+
+\item On remarque que les modalités les plus associées sont les modalités \textbf{Other} des 3 variables actives.
+
+\item 90.26 $\%$ des individus qui prennent la modalité \textbf{Other} de la variable $Processing.Method$ se retrouvent dans cette classe.
+
+\item 77.19 $\%$ des individus de cette classe prennent cette modalité. Globalement, 14.57 $\%$ des individus de la population la prennent.
+
+\item \textbf{En conclusion :} ce cluster permet de différencier le groupe d'individus \textbf{Other} et les regroupe plutôt bien.
+
+\end{enumerate}
+\end{mainbox}
+
+### PARANGONS
+
+- On peut confirmer les **interprétations des clusters** avec les parangons : ce sont les individus qui caractérisent le mieux une partition (les plus proches du barycentre de la classe).
+
+```{r para1}
+para_c1 <- as.numeric(names(cah$desc.ind$para$`1`))
+para_c2 <- as.numeric(names(cah$desc.ind$para$`2`))
+para_c3 <- as.numeric(names(cah$desc.ind$para$`3`))
+para_c4 <- as.numeric(names(cah$desc.ind$para$`4`))
+
+
+df_MCA[c(para_c1),] %>% 
+  select(!where(is.numeric)) %>%
+kable(booktabs = T, escape = F, align = 'c') %>%
+  add_header_above(header = c("Tableau des parangons (Cluster 1) :" = 5),
+                   color =  col_bar , align = "c", italic = T, bold = T) %>%
+    kable_styling(full_width = F, position = "center", font_size = 10,
+                  latex_options = c("striped", "hold_position"))
+```
+
+\vspace{-1em}
+
+```{r para2}
+df_MCA[c(para_c2),] %>% 
+  select(!where(is.numeric)) %>%
+kable(booktabs = T, escape = F, align = 'c') %>%
+  add_header_above(header = c("Tableau des parangons (Cluster 2) :" = 5),
+                   color = col_bar, align = "c", italic = T, bold = T) %>%
+    kable_styling(full_width = F, position = "center", font_size = 10,
+                  latex_options = c("striped", "hold_position"))
+```
+
+\vspace{-1em}
+
+```{r para3}
+df_MCA[c(para_c3),] %>% 
+  select(!where(is.numeric)) %>%
+kable(booktabs = T, escape = F, align = 'c') %>%
+  add_header_above(header = c("Tableau des parangons (Cluster 3) :" = 5),
+                   color = col_bar, align = "c", italic = T, bold = T) %>%
+    kable_styling(full_width = F, position = "center", font_size = 10,
+                  latex_options = c("striped", "hold_position"))
+```
+
+\vspace{-1em}
+
+```{r para4}
+df_MCA[c(para_c4),] %>% 
+  select(!where(is.numeric)) %>%
+kable(booktabs = T, escape = F, align = 'c') %>%
+  add_header_above(header = c("Tableau des parangons (Cluster 4) :" = 5),
+                   color = col_bar, align = "c", italic = T, bold = T) %>%
+    kable_styling(full_width = F, position = "center", font_size = 10,
+                  latex_options = c("striped", "hold_position"))
+
+```
+
+
+\begin{mainbox}{Interprétation des parangons :} 
+\begin{enumerate}
+
+\item Pour les cluster 1, 2 et 3, les parangons (3 clusters confondus) prennent presque tous les mêmes modalités sauf pour la variable $Processing.Method$, qui change à chaque cluster.
+\item On remarque que pour le cluster 4, les parangons prennent tous des modalités \textbf{Other} pour les 3 variables actives.
+
+\end{enumerate}
+\end{mainbox}
+
+\begin{mainbox}{Conclusion :}
+
+La méthode de traitement influe effectivement sur la couleur du café (Les cafés \textbf{Other} dans $Processing.Method$ sont majoritairement \textbf{Other} dans $Color$). Cependant, $Variety$ ne semble pas influer (c'est dû au recodage de la variable et à l'effectif elevé de la modalité \textbf{Other}).
+
+\end{mainbox}
+
+
