@@ -1,0 +1,742 @@
+---
+title: "<span style='color: #6f4e37'>Coffee Project</span>"
+subtitle: "" 
+author: "Corentin DUCLOUX & Youssef DIR"
+institute: <img src= ut.png>
+format: 
+  revealjs:
+    slide-number: true
+    mermaid-format: png
+    chalkboard: true
+    transition: slide
+    background-transition: fade
+    theme: default
+    incremental: true   
+    footer: "--- Analyse de données exploratoire ---"
+    logo: mecen_transparent.png
+    controls : true
+    preview-links: auto
+    reference-location: document
+---
+
+## Problématique {background-color="black" background-image="https://cdn.pixabay.com/photo/2020/05/09/11/37/coffee-5149246_1280.jpg" background-opacity="0.6"}
+
+En premier lieu, cette étude se focalisera sur les caractéristiques `quantitatives` de qualité des cafés pour déterminer si celles-ci sont propres à un groupe particulier (Arabica ou Robusta) grâce à une **ACP**.
+
+En second lieu, l'étude se concentrera sur des caractéristiques `qualitatives` qui justifieront l'utilisation d'une **ACM** puis d'une **CAH**.
+
+## Importation des données
+
+```{r import_lib, echo=FALSE, message=FALSE,warning=FALSE}
+library(FactoMineR)
+library(corrplot)
+library(factoextra)
+library(kableExtra)
+library(ggplot2)
+library(tidyverse)
+library(ggpubr)
+library(kneedle)
+library(DT)
+library(plotly)
+library(patchwork)
+library(ggrepel)
+```
+
+```{r fun, echo=FALSE}
+
+cv <- function(x, y) {
+      t <- table(x, y)
+      chi <- suppressWarnings(chisq.test(t))$statistic
+      cramer <- sqrt(chi / (length(x) * (min(dim(t)) - 1)))
+      cramer
+}
+
+cramer.matrix <- function(y, fill = TRUE){
+      col.y <- ncol(y)
+      V <- matrix(ncol = col.y, nrow = col.y)
+      for(i in 1:(col.y - 1)){
+            for(j in (i + 1):col.y){
+                  V[i,j] <- cv(pull(y,i), pull(y,j))
+            }
+      }
+      diag(V) <- 1 
+      if (fill) {
+            for (i in 1:ncol(V)) {
+                  V[, i] <- V[i, ]
+            }
+      }
+      colnames(V) <- names(y)
+      rownames(V) <- names(y)
+      V
+}
+
+nb_ind_4_fifty_cont <- function(acm, axe = 1, p = 0.5){
+  par_contrib <- acm$ind$contrib[,axe]/sum(acm$ind$contrib[,axe]) 
+  par_contrib_cum <- par_contrib %>% sort(decreasing = TRUE) %>% cumsum()
+  return(sum(par_contrib_cum <= p) +1)
+}
+
+resume_ind_contrib_axe <- function(acm, dim_max = 4, p = 0.5, eff = TRUE){
+  temp <- NULL
+  for (i in 1:dim_max){
+    temp[i] <- nb_ind_4_fifty_cont(acm, axe = i, p = p)
+  }
+  names(temp) <- paste("Dim", 1:dim_max)
+  if (eff == TRUE){
+    return(temp)
+  } else {
+    return( round(temp/nrow(acm$ind$coord)*100, 1))
+  }
+}
+
+```
+
+```{r colors, echo=FALSE}
+
+col_bar <- "#6f4e37"
+col_var <- "#003399"
+contrib_sup <- "#4b6043"
+contrib_inf <- "#c61a09"
+
+```
+
+
+```{r import_data,echo=TRUE}
+#| code-line-numbers: "|1-2|4|6|8-9"
+df_1 <- read.csv("~/R data/arabica_data_cleaned.csv", sep = ",",row.names = 1)
+df_2 <- read.csv("~/R data/robusta_data_cleaned.csv", sep = ",",row.names = 1)
+
+colnames(df_2) <- colnames(df_1)
+
+df_both <- rbind(df_1,df_2)
+
+class_df <- cbind(Variables = colnames(df_both),
+                  Type = unlist(unname(lapply(df_both, class))))
+```
+
+:::{.fragment .fade-in}
+:::{.callout-warning}
+## Problèmes rencontrés :
+
+- Noms de colonnes différents dans les 2 jeux de données
+- Nombre d'individus beaucoup plus important dans le premier dataframe
+- Pas de données manquantes à priori 
+- Quelles variables sélectionner ? (Aide avec `class_df`)
+
+:::
+:::
+
+
+# PARTIE I : ACP
+
+## Présentation du dataframe{.smaller .scrollable}
+
+```{r dataframe,echo=FALSE}
+
+datatable(df_both[,c(1,20:31)], options = list(
+  scrollX = TRUE,
+  scrollCollapse = TRUE,
+  language = list(url = '//cdn.datatables.net/plug-ins/1.10.11/i18n/French.json'),
+  autoWidth = FALSE, 
+  pageLength = 5,
+                                 
+  columnDefs = list(list(width = '200px', targets = c(1, 3))),
+  initComplete = JS(
+    "function(settings, json) {",
+    "$(this.api().table().header()).css({'background-color': '#6f4e37', 'color': '#fff'});",
+    "}")),
+  
+  caption = htmltools::tags$caption(
+    style = 'caption-side: bottom; text-align: center;',
+    'Tableau : ', htmltools::em("Variables sélectionnées pour l'ACP")
+  )
+)
+```
+
+## Quelques statistiques descriptives
+
+```{r stat_1,echo=TRUE}
+round(summary(df_both$Aroma),2)
+round(summary(df_both$Moisture),2)
+round(summary(df_both$Clean.Cup),2)
+round(summary(df_both$Total.Cup.Points),2)
+sum(df_both[124,20:29]);df_both[124,30]
+
+round(summary(df_both$Flavor),2)
+```
+
+## Courbes de distribution
+
+```{r stat_2}
+
+df_notes <- df_both %>%
+  select(20:29) %>% 
+    pivot_longer(cols = 1:10, names_to = 'Variable',
+         values_to = 'Note')
+
+ggplot(df_notes, aes(x=Note, color=Variable)) +
+  geom_density() + xlim(5,10) + ylim(0,1.75) + 
+  theme_minimal() + labs(y = "Densité")
+
+```
+
+
+## Matrice des corrélations{.smaller}
+
+```{r correlation_plot}
+M <- round(cor(df_both[20:31]),3)
+
+corrplot(M, order = 'hclust', method = 'square',
+         lower = 'shade',
+         diag = FALSE,
+         cl.ratio = 0.15, cl.cex = 0.7,
+         tl.col = 'black', tl.srt = 45,tl.cex = 0.7,
+         col = COL1("YlOrBr", n = 200))
+```
+
+## Etude des inerties{.smaller}
+
+:::: {.columns}
+
+::: {.column width="60%"}
+```{r inertie table}
+
+resacp <- PCA(df_both[df_both$Total.Cup.Points != 0,c(1,20:31)], quali.sup = "Species", graph = F)
+
+fviz_eig(resacp, addlabels = TRUE, ylab = "% d'inertie expliquée",
+         barfill = col_bar , barcolor = col_bar) + 
+  ylim(0,60) + 
+  ggtitle("Scree plot") +
+  theme(plot.title = element_text(size = 18, face = "bold"))
+
+kneedle(x = c(1:length(resacp$eig[,2])), y = unname(resacp$eig[,2]))
+
+```
+:::
+
+::: {.column width="40%"}
+- Afin de déterminer le nombre d'axes factoriels $F_i$ à conserver, on peut utiliser la méthode dite du "coude" 
+- Changement abrupt de pente à partir du troisième axe
+- On conserve donc **2** composantes principales
+:::
+
+::::
+
+<hr>
+
+`kneedle(x = c(1:length(resacp$eig[,2])), y = unname(resacp$eig[,2]))` nous renvoie la valeur de l'axe pour laquelle il faut s'arrêter et son inertie associée.
+
+::: {style="text-align: center; margin-top: 1em"}
+Méthode : [Detecting Knee Points in System Behavior](https://raghavan.usc.edu/papers/kneedle-simplex11.pdf){preview-link="true" style="text-align: center"}   
+:::
+
+## Etude des variables{.smaller}
+
+::: panel-tabset
+
+### Tableau résumé
+
+```{r tab}
+
+tab2 <-cbind(
+  round(resacp$var$contrib[,1:2],2), # Récupérer la contrib de F1 & F2
+  round(resacp$var$cos2[,1:2],2), # Récupérer la qualité de F1 & F2
+  round(resacp$var$cos2[,1] + resacp$var$cos2[,2],2)) # qualité F1+F2 
+colnames(tab2) = c("Cont F1","Cont F2","cos² F1",
+                   "cos² F2","cos² F1 & F2")
+
+# ifelse couleur conditionnelle
+
+color_1 = ifelse(tab2[,1] > mean(tab2[,1]),
+       contrib_sup,contrib_inf)
+
+color_2 = ifelse(tab2[,2] > mean(tab2[,2]),
+       contrib_sup,contrib_inf)
+
+tab2 %>% 
+kable(booktabs = T,escape = F,align = 'c') %>% 
+    kable_styling(full_width = F, position = "center",font_size = 22) %>%
+  
+    column_spec(2,color = color_1) %>% 
+    column_spec(3,color = color_2)
+
+```
+
+### Contributions
+
+```{r barplots}
+
+ax1 <- fviz_contrib(resacp,axes = 1, choice = "var", fill = col_bar, color = col_bar) + 
+  ggtitle("Contribution variables - Dimension 1") +
+  theme(plot.title = element_text(size = 11, face = "bold"))
+
+ax2 <- fviz_contrib(resacp,axes = 2, choice = "var", fill = col_bar, color = col_bar) + 
+  ggtitle("Contribution variables - Dimension 2") +
+  theme(plot.title = element_text(size = 11, face = "bold"))
+
+ggarrange(ax1,ax2,hjust = -0.6)
+
+```
+
+### Cercle des corrélations
+
+```{r circle}
+options(ggrepel.max.overlaps = Inf)
+
+fviz_pca_var(resacp, col.var = "cos2",
+             gradient.cols = c("#FFCC00", "#CC9933", "#660033", "#003399"),
+             repel = TRUE) +
+    ggtitle("Cercle des corrélations") +
+    theme(plot.title = element_text(size = 18, face = "bold"))
+```
+
+:::
+
+## Etude des individus{.smaller}
+
+::: panel-tabset
+
+### Contributions
+
+```{r contribs}
+
+ax3 <- fviz_contrib(resacp,axes = 1, choice = "ind", fill = col_bar,
+                    color = col_bar, top = 20) + 
+  ggtitle("Contribution individus - Dimension 1") +
+  theme(plot.title = element_text(size = 11, face = "bold"))
+
+ax4 <- fviz_contrib(resacp,axes = 2, choice = "ind", fill = col_bar,
+                    color = col_bar,top = 20) + 
+  ggtitle("Contribution individus - Dimension 2") +
+  theme(plot.title = element_text(size = 11, face = "bold"))
+
+ggarrange(ax3,ax4,hjust = -0.6)
+
+```
+
+### Nuage des individus
+
+```{r ind_1}
+
+fviz_pca_ind(resacp, col.ind = "cos2",
+             gradient.cols = c("#FFCC00","#CC9933","#660033","#003399"),
+             alpha.ind="contrib",
+             repel = FALSE) + 
+  ggtitle("Individus selon leur contribution & leur qualité de représentation") + ylim(-17.5,5) +
+  theme(plot.title = element_text(size = 18, face = "bold"))
+
+```
+
+### Nuage des individus selon le groupe
+
+```{r ind_2}
+
+fviz_pca_ind(resacp,label = "none", habillage="Species",ellipse.alpha = 0,
+             addEllipses = TRUE, ellipse.level = 0.95) + ylim(-17.5,5) +
+             scale_color_brewer(palette="Dark2") + 
+             ggtitle("Nuage des individus (Arabica & Robusta)") +
+             theme(plot.title = element_text(size = 18, face = "bold"))
+
+```
+
+:::
+
+## Nuage des variables et des individus
+
+<center>
+
+```{r plotly}
+
+p2 <- fviz_pca_biplot(resacp, label ="var",col.var = "cos2",
+                      col.ind="cos2",alpha = "contrib",
+                gradient.cols= c("#FFCC00","#CC9933","#660033","#003399")) + 
+  ggtitle("Graph interactif") +
+  theme(plot.title = element_text(size = 18, face = "bold"))
+
+p2 %>% ggplotly()
+```
+
+</center>
+
+# PARTIE II : ACM
+
+## Recodage des variables{.smaller}
+
+```{r var_engineering, echo=TRUE}
+#| code-line-numbers: "|1|3|5-7|9|11|13-18|20-21|23-24|26-28"
+
+l = unique(df_both$Variety)
+
+Sum_variety <- NULL
+
+for (i in 1:length(l)){
+   Sum_variety[i] <- sum(df_both$Variety == l[i])
+}
+
+names(Sum_variety) <- l
+
+lv_sup <- names(Sum_variety[Sum_variety >=50])
+
+df_both$Variety <- ifelse(df_both$Variety == lv_sup[1], "Other",
+       ifelse(df_both$Variety == lv_sup[2], lv_sup[2],
+              ifelse(df_both$Variety == lv_sup[3], lv_sup[3],
+                     ifelse(df_both$Variety == lv_sup[4], lv_sup[4],  
+                            ifelse(df_both$Variety == lv_sup[5], lv_sup[5],
+                                   ifelse(df_both$Variety == lv_sup[6], lv_sup[6], "Other"))))))
+
+df_both$Color <- ifelse(df_both$Color == "None", "Other",
+                    ifelse(df_both$Color == "", "Other", df_both$Color))
+
+df_both$Processing.Method <- ifelse(df_both$Processing.Method == "", "Other",
+                                    df_both$Processing.Method)
+
+df_both$Grading.Date[962] <- str_sub(df_both$Grading.Date[962],start = 1, end = 19)
+df_both$Grading.Date[1084] <- str_sub(df_both$Grading.Date[1084],start = 1, end = 19)
+df_both$Grading.Date <- as.numeric(str_sub(df_both$Grading.Date,start = -4))
+```
+
+
+## Présentation du dataframe{.smaller .scrollable}
+
+```{r dataframe_2, echo=FALSE}
+
+names(df_both)[names(df_both) == 'Processing.Method'] <- 'PM'
+
+df_MCA <- df_both[df_both$Total.Cup.Points != 0, c(1,16,18,19,30,31,34)]
+
+datatable(df_MCA, options = list(
+  scrollX = TRUE,
+  scrollCollapse = TRUE,
+  language = list(url = '//cdn.datatables.net/plug-ins/1.10.11/i18n/French.json'),
+  autoWidth = FALSE, 
+  pageLength = 3,
+                                 
+  columnDefs = list(list(width = '200px', targets = c(1, 3))),
+  initComplete = JS(
+    "function(settings, json) {",
+    "$(this.api().table().header()).css({'background-color': '#6f4e37', 'color': '#fff'});",
+    "}")),
+  
+  caption = htmltools::tags$caption(
+    style = 'caption-side: bottom; text-align: center;',
+    'Tableau : ', htmltools::em("Variables sélectionnées pour l'ACM")
+  )
+)
+```
+
+## Barplot des modalités{.smaller}
+
+> Variables actives : 
+
+```{r modal}
+
+(ggplot(df_MCA, aes(x = reorder(Variety,Variety,length))) +
+  geom_bar(fill = col_bar, width = 0.6) + coord_flip() +
+  labs(y = "Effectif",x = "") + ggtitle("Variété") + theme_minimal() + 
+  theme(plot.title = element_text(size = 18, face = "italic")) + 
+
+ggplot(df_MCA, aes(x = reorder(PM,PM,length))) +
+  geom_bar(fill = col_bar, width = 0.6) + coord_flip() +
+  labs(y = "Effectif", x = "") + ggtitle("Traitement") + theme_minimal() +
+  theme(plot.title = element_text(size = 18, face = "italic"))) /
+
+ggplot(df_MCA, aes(x = reorder(Color,Color,length))) +
+  geom_bar(fill = col_bar, width = 0.5) + coord_flip() +
+  labs(y = "Effectif", x = "")+ ggtitle("Couleur") + theme_minimal() +
+  theme(plot.title = element_text(size = 18, face = "italic"))
+
+```
+
+## Matrice de Cramer{.smaller}
+
+```{r correlation_plot_2}
+
+acm <- MCA(df_MCA, quanti.sup = c(2,5:6) ,quali.sup = 1, ncp = 20, graph = FALSE)
+
+acm_ventil <- MCA(df_MCA, quanti.sup = c(2,5:6) ,quali.sup = 1, ncp = 20, graph = FALSE, level.ventil = 100)
+
+explor::explor(acm_ventil)
+
+M2 <- cramer.matrix(df_MCA[c(-1,-2,-5,-6)])
+
+corrplot(M2, order = 'hclust', method = 'square',
+         diag = FALSE,
+         cl.ratio = 0.15, cl.cex = 0.7,
+         tl.col = 'black', tl.srt = 45,tl.cex = 0.7,
+         col = COL1("YlOrBr", n = 200))
+```
+
+## Etude des inerties{.smaller}
+
+```{r inertia_acm}
+
+fviz_screeplot(acm, choice = "variance", ncp = 20,
+               main ="Pourcentage d'inertie expliquée",
+               addlabels = TRUE,  ylab=" ",
+               barfill = col_bar, barcol="white") + ylim(0,18)
+
+somme_inert <- round(sum(acm$eig[1:4,2]),2)
+```
+
+- L'axe $F_1$ explique **`r round(acm$eig[1,2],2)`** % de l'inertie totale
+- Les axes factoriels $F_i$ avec ($i = 1,\dots,4$) expliquent `r somme_inert` % de l'inertie totale
+
+## Etude des variables (Dim 1 & 2){.smaller}
+
+::: panel-tabset
+
+### Eta² des variables actives
+
+```{r eta2}
+
+fviz_mca_var(acm, choice = "var", axes = c(1,2),
+             invisible = "quali.sup", col.var = col_var,
+             repel = TRUE, labelsize = 3,col.quanti.sup = "white",
+             title = "Carrés des rapports de corrélation",
+             ggtheme = theme_minimal()) +
+  theme(legend.position = "none")
+```
+
+### Contributions
+
+```{r contribind1}
+fviz_contrib(acm,axes = 1, choice = "var", fill = col_bar,
+                    color = col_bar) + 
+  ggtitle("Contribution modalités - Dimension 1") +
+  theme(plot.title = element_text(size = 11, face = "bold")) +
+  
+fviz_contrib(acm,axes = 2, choice = "var", fill = col_bar,
+                    color = col_bar) + 
+  ggtitle("Contribution modalités - Dimension 2") +
+  theme(plot.title = element_text(size = 11, face = "bold"))
+
+```
+
+### Nuage des modalités
+
+```{r plotmod2,out.width="95%"}
+res <- explor::prepare_results(acm)
+
+explor::MCA_var_plot(res, xax = 1, yax = 2, var_sup = TRUE, var_sup_choice = c("Species",
+    "Grading.Date", "Total.Cup.Points", "Moisture"), var_lab_min_contrib = 0,
+    col_var = "Variable", symbol_var = NULL, size_var = "Count", size_range = c(22.5,
+        300), labels_size = 10, point_size = 20, transitions = TRUE, labels_positions = "auto",
+    labels_prepend_var = FALSE, xlim = c(-2.58, 3.21), ylim = c(-3.6, 2.18), menu = FALSE)
+```
+
+:::
+
+## Etude des variables (Dim 3 & 4){.smaller}
+
+::: panel-tabset
+
+### Eta² des variables actives
+
+```{r eta22}
+
+eta <- as.data.frame(acm$var$eta2)
+
+fviz_mca_var(acm, choice = "var", axes = c(3,4),
+             repel = TRUE, col.var = "white", 
+             col.quanti.sup = "white", col.quali.sup = "white",
+             title = "Carrés des rapports de corrélation") +
+  geom_point(data = eta,  
+             aes(x = `Dim 3`, y = `Dim 4`), 
+             col = col_var, shape = 17 ) +
+  geom_text_repel(data = eta,  
+             aes(x = `Dim 3`, y = `Dim 4`, label = rownames(eta)),
+             col = col_var, size = 3)
+```
+
+### Contributions
+
+```{r contribind2}
+fviz_contrib(acm,axes = 3, choice = "var", fill = col_bar,
+                    color = col_bar) + 
+  ggtitle("Contribution modalités - Dimension 3") +
+  theme(plot.title = element_text(size = 11, face = "bold")) +
+  
+fviz_contrib(acm,axes = 4, choice = "var", fill = col_bar,
+                    color = col_bar) + 
+  ggtitle("Contribution modalités - Dimension 4") +
+  theme(plot.title = element_text(size = 11, face = "bold"))
+
+```
+
+### Nuage des modalités
+
+```{r,out.width="95%"}
+
+explor::MCA_var_plot(res, xax = 3, yax = 4, var_sup = TRUE, var_sup_choice = c("Species",
+    "Grading.Date", "Total.Cup.Points", "Moisture"), var_lab_min_contrib = 0,
+    col_var = "Variable", symbol_var = NULL, size_var = "Count", size_range = c(22.5,
+        300), labels_size = 10, point_size = 20, transitions = TRUE, labels_positions = "auto",
+    labels_prepend_var = FALSE, xlim = c(-2.58, 3.21), ylim = c(-3.6, 2.18), menu = FALSE)
+```
+
+:::
+
+## Etude des individus (Dim 1 & 2){.smaller}
+
+::: panel-tabset
+
+### Nuage des individus
+
+```{r plotmod1}
+explor::MCA_ind_plot(res, xax = 1, yax = 2, ind_sup = FALSE, lab_var = NULL,
+    ind_lab_min_contrib = 0, col_var = "PM", labels_size = 9,
+    opacity_var = NULL, point_size = 64, ellipses = FALSE, transitions = TRUE,
+    labels_positions = NULL, xlim = c(-2.83, 3.9), ylim = c(-3.39, 3.35), menu = FALSE)
+
+explor::explor(acm)
+```
+### Contributions
+
+```{r contrib12}
+fviz_contrib(acm,axes = 1, choice = "ind", fill = col_bar,
+                    color = col_bar) + 
+  ggtitle("Contribution individus - Dimension 1") +
+  theme(plot.title = element_text(size = 11, face = "bold"),
+        axis.text.x=element_blank(),axis.ticks.x=element_blank(),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + 
+  
+fviz_contrib(acm,axes = 2, choice = "ind", fill = col_bar,
+                    color = col_bar) + 
+  ggtitle("Contribution individus - Dimension 2") +
+  theme(plot.title = element_text(size = 11, face = "bold"),
+        axis.text.x=element_blank(),axis.ticks.x=element_blank(),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+ind_ax1 <- unname(resume_ind_contrib_axe(acm,1))
+ind_ax2 <- unname(resume_ind_contrib_axe(acm,2))[2]
+```
+
+
+### 50 % de contribution
+
+:::{.callout-tip}
+## Interprétation :
+
+- Il faut **`r ind_ax1`** individus pour arriver à 50 % de contribution sur l'axe $F_1$.
+- Il faut **`r ind_ax2`** individus pour arriver à 50 % de contribution sur l'axe $F_2$.
+- Les axes $F_1$ et $F_2$ sont donc des axes globaux puisqu'un nombre important d'individus contribuent à la construction de ceux-ci.
+
+:::
+:::
+
+## Etude des individus (Dim 3 & 4){.smaller}
+
+::: panel-tabset
+
+### Nuage des individus
+
+```{r plotmod3}
+explor::MCA_ind_plot(res, xax = 3, yax = 4, ind_sup = FALSE, lab_var = NULL,
+    ind_lab_min_contrib = 0, col_var = "Color", labels_size = 9,
+    opacity_var = NULL, point_size = 64, ellipses = FALSE, transitions = TRUE,
+    labels_positions = NULL, xlim = c(-2.83, 3.9), ylim = c(-3.39, 3.35), menu = FALSE)
+
+```
+### Contributions
+
+```{r contrib34}
+fviz_contrib(acm,axes = 3, choice = "ind", fill = col_bar,
+                    color = col_bar) + 
+  ggtitle("Contribution individus - Dimension 3") +
+  theme(plot.title = element_text(size = 11, face = "bold"),
+        axis.text.x=element_blank(),axis.ticks.x=element_blank(),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + 
+  
+fviz_contrib(acm,axes = 4, choice = "ind", fill = col_bar,
+                    color = col_bar) + 
+  ggtitle("Contribution individus - Dimension 4") +
+  theme(plot.title = element_text(size = 11, face = "bold"),
+        axis.text.x=element_blank(),axis.ticks.x=element_blank(),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+ind_ax3 <- unname(resume_ind_contrib_axe(acm,3))[3]
+ind_ax4 <- unname(resume_ind_contrib_axe(acm))[4]
+```
+
+
+### 50 % de contribution
+
+:::{.callout-tip}
+## Interprétation :
+
+- Il faut **`r ind_ax3`** individus pour arriver à 50 % de contribution sur l'axe $F_3$.
+- Il faut **`r ind_ax4`** individus pour arriver à 50 % de contribution sur l'axe $F_4$.
+- L'axe $F_3$ est donc un axe expliquant mieux les individus prenant des `modalités rares` tandis que l'axe $F_4$ reste un axe plutôt global.
+
+:::
+:::
+
+# PARTIE III : CLASSIFICATION
+
+## Mesure et choix des classes{.smaller}
+
+```{r between_within}
+
+acm_classif <- MCA(df_MCA, quanti.sup = c(2,5:6) ,quali.sup = 1, ncp = 9, graph = FALSE)   
+
+cah <- HCPC(acm_classif, nb.clust = 4, graph = FALSE)
+
+par(mfrow = c(1,2))
+
+cah$call$t$within[1:9] %>% 
+  barplot(las=1 ,density = 40, col = col_bar,
+          main = "Inertie intra-classe",names = 1:9)
+
+cah$call$t$inert.gain[1:9] %>% 
+  barplot(las=1 ,density = 40, col = col_bar,
+          main = "Inertie inter-classe",names = 1:9)
+```
+
+<hr>
+
+- On aperçoit des sauts dans les gains d'inertie assez considérables à 2 et 4 classes.
+
+## CAH{.smaller}
+
+```{r cah_1,warning=FALSE}
+
+fviz_dend(cah, cex = 0.3,
+          main = "Classification sur les résultats de l'ACM",
+          palette = c("#7570B3","#E7298A","#D95F02","#1B9E77"))
+
+sum_clust_1 <- sum(cah$call$X$clust == 1)
+sum_clust_2 <- sum(cah$call$X$clust == 2)
+sum_clust_3 <- sum(cah$call$X$clust == 3)
+sum_clust_4 <- sum(cah$call$X$clust == 4)
+
+#cah$data.clust[cah$data.clust$clust == 2,]
+```
+
+<hr>
+
+- On obtient 4 *clusters* de taille $n =$ `r sum_clust_1`, `r sum_clust_2`, `r sum_clust_3` et `r sum_clust_4`.
+
+## Clusters sur les CP
+
+```{r cp,warning=FALSE}
+
+options(ggrepel.max.overlaps = 15)
+
+fviz_cluster(cah, geom = c("point", "text"), repel = TRUE,
+             main = "Factor Map (Dim 1 & 2)",
+             axes = c(1,2)) + 
+  theme_minimal() +
+  theme(legend.position="none") +
+  scale_color_brewer(palette = "Dark2") + 
+  scale_fill_brewer(palette = "Dark2") +
+
+fviz_cluster(cah, geom = "point", repel = TRUE,
+             main = "Factor map (Dim 3 & 4)",
+             axes = c(3,4)) + theme_minimal() +
+  scale_color_brewer(palette = "Dark2") + 
+  scale_fill_brewer(palette = "Dark2")
+```
+
+## {background-iframe="https://corentinducloux.fr/Reveal.js/classification_tableaux.html" background-interactive="true"}
+
+
