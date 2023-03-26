@@ -1,4 +1,4 @@
-# Red-Hot-Coffee-Peppers
+# Red Hot Coffee Peppers
 
 ## Shall we drink :coffee: ?
 
